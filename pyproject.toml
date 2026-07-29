@@ -1,0 +1,32 @@
+[project]
+name = "pyradiomicsbatch"
+version = "0.1.0"
+authors = [
+    { name = "M Chen" }
+]
+maintainers = [
+    { name = "C Johnson" },
+    { name = "E Chang" }
+]
+description = "Batch dataset processing for PyRadiomics"
+keywords = ["radiomics"]
+readme = "README.md"
+requires-python = "==3.11.*"
+dependencies = [
+    "numpy>=1.26.4",
+    "pandas>=2.0.0",
+    "pyradiomics @ git+https://github.com/AIM-Harvard/pyradiomics.git@v3.1.0",
+    "rich>=15.0.0",
+    "setuptools>=83.0.0",
+    "wheel>=0.47.0",
+]
+
+[project.urls]
+Repository = "https://github.com/Mitch-Chen-Group/pyradiomicsBatch"
+
+[project.scripts]
+rdmx-batch = "pyradiomicsbatch.main:main"
+
+[build-system]
+requires = ["uv_build>=0.12.0,<0.13"]
+build-backend = "uv_build"
