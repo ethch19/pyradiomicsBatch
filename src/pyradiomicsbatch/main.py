@@ -6,6 +6,9 @@ import sys
 import tkinter as tk
 from datetime import UTC, datetime
 from pathlib import Path
+import re
+from tqdm import tqdm
+
 
 from rich.console import Console
 
@@ -80,10 +83,8 @@ def rdmx_headless(
             )
 
 
-def pyradiomics_cli(csv_path: Path, out_path: Path, config_path: Path, jobs: int):
+def pyradiomics_cli(csv_path: Path, out_path: Path, config_path: Path, logging_path: Path, total_cases: int, jobs: int):
     cmd = [
-        "uv",
-        "run",
         "pyradiomics",
         str(csv_path),
         "-o",
@@ -94,9 +95,37 @@ def pyradiomics_cli(csv_path: Path, out_path: Path, config_path: Path, jobs: int
         str(config_path),
         "-j",
         str(jobs),
+        "--logging-level",
+        "INFO",
+        "--log-file",
+        str(logging_path),
+        "-v",
+        "4"
     ]
 
-    subprocess.run(cmd, check=True)
+    _run_with_progress(cmd, total_cases)
+
+
+def _run_with_progress(cmd: list[str], total_cases: int):
+    case_pattern = re.compile(r"\(case\s+(\d+)\)", re.IGNORECASE)
+    finished_cases: set[str] = set()
+    
+    process = subprocess.Popen(
+        cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, bufsize=1
+    )
+
+    if process.stdout is not None:
+        with tqdm(total=total_cases, desc="Extracting Features") as pbar:
+            for line in process.stdout:
+                if "failed!" in line.lower() or "processed" in line.lower():
+                    match = case_pattern.search(line)
+                    if match and match.group(1) not in finished_cases:
+                        finished_cases.add(match.group(1))
+                        pbar.update(1)
+                    
+    process.wait()
+    if process.returncode != 0:
+        print(f"\nProcess exited with code {process.returncode}.")
 
 
 def main():
@@ -234,19 +263,32 @@ def main():
         )
         output_dir.mkdir(parents=True, exist_ok=True)
         rdmx_csv = output_dir / "rdmx.csv"
+        logging_path = output_dir / "pyradiomics.log"
 
-        console.print(
-            f"[bold cyan]Running pyradiomics batch with {n_jobs} threads[/bold cyan]"
-        )
-        pyradiomics_cli(args.file, rdmx_csv, config_path, n_jobs)
-        console.print(
-            f"[bold green]Radiomics csv file saved to:[/bold green] {rdmx_csv}"
-        )
+        try:
+            with open(args.file, 'r', encoding='utf-8') as f:
+                reader = csv.reader(f)
+                total_cases = sum(1 for _ in reader) - 1
+        except FileNotFoundError:
+            console.print(f"[bold red]Error: Could not find {args.file}[/bold red]")
+            return
+
+        if total_cases > 0:
+            console.print(
+                f"[bold cyan]Running pyradiomics batch with {n_jobs} threads[/bold cyan]"
+            )
+            pyradiomics_cli(args.file, rdmx_csv, config_path, logging_path, total_cases, n_jobs)
+            console.print(
+                f"[bold green]Radiomics csv file saved to:[/bold green] {rdmx_csv}"
+            )
+        else:
+            console.print(f"[bold red]Batch CSV is empty or only contains a header[/bold red] {args.file}")
     else:
         output_dir = base_output_dir / f"{args.dir.name}_{cur_timestamp}"
         output_dir.mkdir(parents=True, exist_ok=True)
         csv_path = output_dir / "batch.csv"
         rdmx_csv = output_dir / "rdmx.csv"
+        logging_path = output_dir / "pyradiomics.log"
 
         rdmx_headless(
             args.dir, csv_path, args.mode, args.id_regex, args.seg_regex, console
@@ -254,13 +296,25 @@ def main():
         console.print(
             f"[bold green]Pre-built csv file saved to:[/bold green] {csv_path}"
         )
-        console.print(
-            f"[bold cyan]Running pyradiomics batch with {n_jobs} threads[/bold cyan]"
-        )
-        pyradiomics_cli(csv_path, rdmx_csv, config_path, n_jobs)
-        console.print(
-            f"[bold green]Radiomics csv file saved to:[/bold green] {rdmx_csv}"
-        )
+
+        try:
+            with open(csv_path, 'r', encoding='utf-8') as f:
+                reader = csv.reader(f)
+                total_cases = sum(1 for _ in reader) - 1
+        except FileNotFoundError:
+            console.print(f"[bold red]Error: Could not find {csv_path}[/bold red]")
+            return
+
+        if total_cases > 0:
+            console.print(
+                f"[bold cyan]Running pyradiomics batch with {n_jobs} threads[/bold cyan]"
+            )
+            pyradiomics_cli(csv_path, rdmx_csv, config_path, logging_path, total_cases, n_jobs)
+            console.print(
+                f"[bold green]Radiomics csv file saved to:[/bold green] {rdmx_csv}"
+            )
+        else:
+            console.print(f"[bold red]Batch CSV is empty or only contains a header[/bold red] {csv_path}")
 
 
 if __name__ == "__main__":

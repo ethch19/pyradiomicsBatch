@@ -18,6 +18,7 @@ dependencies = [
     "pyradiomics @ git+https://github.com/AIM-Harvard/pyradiomics.git@v3.1.0",
     "rich>=15.0.0",
     "setuptools>=83.0.0",
+    "tqdm>=4.70.0",
     "wheel>=0.47.0",
 ]
 
