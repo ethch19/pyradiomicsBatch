@@ -4,6 +4,10 @@ imageType:
     LoG: {'sigma' : [1.0, 3.0]}  # This is a non active comment on a line with active code preceding it.
     Wavelet:
         binWidth: 10
+    Square: {}
+    SquareRoot: {}
+    Logarithm: {}
+    Exponential: {}
 
 featureClass:
    shape:  
@@ -15,7 +19,7 @@ featureClass:
    ngtdm:
 
 setting:
-    normalize: True
+    normalize: false
     normalizeScale: 1
     binWidth: 25
     label: 1
