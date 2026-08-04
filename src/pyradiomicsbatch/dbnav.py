@@ -40,22 +40,30 @@ class RegexHierarchyBuilder(HierarchyBuilder):
     User-specified regex to identify images and masks
     """
 
-    def __init__(self, id_regex: str, seg_regex: str):
+    def __init__(self, id_regex: str, seg_regexes: dict[str, str]):
         self.id_regex = re.compile(id_regex)
-        self.seg_regex = re.compile(seg_regex)
+        self.seg_regexes: dict[str, re.Pattern[str]] = {
+            region: re.compile(pattern) for region, pattern in seg_regexes.items()
+        }
 
     def build(self, dataset_dir: Path) -> list[dict[str, str]]:
         result: list[dict[str, str]] = []
         imgs: dict[str, Path] = {}
-        masks: dict[str, list[Path]] = defaultdict(list)
+        masks: dict[str, list[tuple[Path, str]]] = defaultdict(list)
 
         for file_path in dataset_dir.rglob("*.nii.gz"):
             path_str = file_path.as_posix()
 
-            seg_match = self.seg_regex.search(path_str)
-            if seg_match:
-                pt_id = str(seg_match.group(1))
-                masks[pt_id].append(file_path)
+            matched_mask = False
+            for region, seg_regex in self.seg_regexes.items():
+                seg_match = seg_regex.search(path_str)
+                if seg_match:
+                    pt_id = str(seg_match.group(1))
+                    masks[pt_id].append((file_path, region))
+                    matched_mask = True
+                    break
+
+            if matched_mask:
                 continue
 
             id_match = self.id_regex.search(path_str)
@@ -70,10 +78,19 @@ class RegexHierarchyBuilder(HierarchyBuilder):
         for pt_id in all_pt_ids:
             img = str(imgs[pt_id]) if pt_id in imgs else ""
             if masks.get(pt_id):
-                for mask in masks[pt_id]:
-                    result.append({"ID": pt_id, "Image": img, "Mask": str(mask)})
+                for mask_path, region in masks[pt_id]:
+                    result.append(
+                        {
+                            "ID": pt_id,
+                            "Image": img,
+                            "Mask": str(mask_path),
+                            "Region": region,
+                        }
+                    )
             else:
-                result.append({"ID": pt_id, "Image": img, "Mask": ""})
+                result.append(
+                    {"ID": pt_id, "Image": img, "Mask": "", "Region": "Unknown"}
+                )
 
         return result
 
@@ -86,8 +103,17 @@ class RdmxApp:
 
         self.dataset_dir = tk.StringVar(value=str(Path(__file__).parent))
         self.nav_mode = tk.StringVar(value="strict")
-        self.id_regex = tk.StringVar(value=r"/NIFTI/(\d+)\.nii\.gz$")
-        self.seg_regex = tk.StringVar(value=r"/SEG/seg(\d+)\.nii\.gz$")
+
+        self.id_regex = tk.StringVar(value=r"/([^/]+)\.nii\.gz$")
+
+        self.use_tumour = tk.BooleanVar(value=True)
+        self.tumour_regex = tk.StringVar(value=r"/([^/]+)_mask\.nii\.gz$")
+
+        self.use_parenchyma = tk.BooleanVar(value=True)
+        self.parenchyma_regex = tk.StringVar(value=r"/([^/]+)p\.nii\.gz$")
+
+        self.use_shell = tk.BooleanVar(value=True)
+        self.shell_regex = tk.StringVar(value=r"/([^/]+)s\.nii\.gz$")
 
         self.hierarchy: list[dict[str, str]] = []
 
@@ -128,29 +154,53 @@ class RdmxApp:
         self.regex_frame = ttk.LabelFrame(
             main_frame, text=" Regex Configuration ", padding="10"
         )
-        ttk.Label(self.regex_frame, text="ID Regex:").grid(
-            row=0, column=0, sticky="w", pady=5
+
+        # Base ID
+        ttk.Label(self.regex_frame, text="Base ID Regex:").grid(
+            row=0, column=0, sticky="w", pady=(5, 15)
         )
         ttk.Entry(self.regex_frame, textvariable=self.id_regex, width=40).grid(
-            row=0, column=1, padx=10, pady=5
+            row=0, column=1, padx=10, pady=(5, 15)
         )
-        ttk.Label(
-            self.regex_frame,
-            text=r"e.g. /NIFTI/(\d+)\.nii\.gz$ matches /NIFTI/1.nii.gz (ID: 1)",
-            font=("Arial", 8, "italic"),
-        ).grid(row=1, column=1, sticky="w")
 
-        ttk.Label(self.regex_frame, text="Segmentation Regex:").grid(
-            row=2, column=0, sticky="w", pady=5
-        )
-        ttk.Entry(self.regex_frame, textvariable=self.seg_regex, width=40).grid(
-            row=2, column=1, padx=10, pady=5
-        )
-        ttk.Label(
+        # Tumour
+        self.chk_tumour = ttk.Checkbutton(
             self.regex_frame,
-            text=r"e.g. /SEG/seg(\d+)\.nii\.gz$ matches /SEG/seg5.nii.gz (ID: 5)",
-            font=("Arial", 8, "italic"),
-        ).grid(row=3, column=1, sticky="w")
+            text="Tumour Mask:",
+            variable=self.use_tumour,
+            command=self.toggle_regex_entries,
+        )
+        self.chk_tumour.grid(row=1, column=0, sticky="w", pady=2)
+        self.ent_tumour = ttk.Entry(
+            self.regex_frame, textvariable=self.tumour_regex, width=40
+        )
+        self.ent_tumour.grid(row=1, column=1, padx=10, pady=2)
+
+        # Parenchyma
+        self.chk_parenchyma = ttk.Checkbutton(
+            self.regex_frame,
+            text="Parenchyma Mask:",
+            variable=self.use_parenchyma,
+            command=self.toggle_regex_entries,
+        )
+        self.chk_parenchyma.grid(row=2, column=0, sticky="w", pady=2)
+        self.ent_parenchyma = ttk.Entry(
+            self.regex_frame, textvariable=self.parenchyma_regex, width=40
+        )
+        self.ent_parenchyma.grid(row=2, column=1, padx=10, pady=2)
+
+        # Shell
+        self.chk_shell = ttk.Checkbutton(
+            self.regex_frame,
+            text="Shell/Annular Mask:",
+            variable=self.use_shell,
+            command=self.toggle_regex_entries,
+        )
+        self.chk_shell.grid(row=3, column=0, sticky="w", pady=2)
+        self.ent_shell = ttk.Entry(
+            self.regex_frame, textvariable=self.shell_regex, width=40
+        )
+        self.ent_shell.grid(row=3, column=1, padx=10, pady=2)
 
         self.action_frame = ttk.Frame(main_frame)
         self.action_frame.pack(fill=tk.X, pady=20)
@@ -168,6 +218,8 @@ class RdmxApp:
         self.console = scrolledtext.ScrolledText(main_frame, height=12)
         self.console.pack(fill=tk.BOTH, expand=True, pady=(5, 0))
 
+        self.toggle_regex_entries()
+
     def browse_dir(self):
         init_path = self.dataset_dir.get()
         d = filedialog.askdirectory(
@@ -181,6 +233,13 @@ class RdmxApp:
             self.regex_frame.pack(fill=tk.X, pady=(10, 0), before=self.action_frame)
         else:
             self.regex_frame.pack_forget()
+
+    def toggle_regex_entries(self):
+        self.ent_tumour.state(["!disabled"] if self.use_tumour.get() else ["disabled"])
+        self.ent_parenchyma.state(
+            ["!disabled"] if self.use_parenchyma.get() else ["disabled"]
+        )
+        self.ent_shell.state(["!disabled"] if self.use_shell.get() else ["disabled"])
 
     def log(self, message: str | list[str]):
         timestamp = f"[{self.cur_timestamp()}]"
@@ -210,13 +269,44 @@ class RdmxApp:
             builder = StrictHierarchyBuilder()
         else:
             id_regex = self.id_regex.get()
-            seg_regex = self.seg_regex.get()
             if "(" not in id_regex:
                 messagebox.showerror(
                     "Error", "ID regex must contain a capture group '()'"
                 )
                 return
-            builder = RegexHierarchyBuilder(id_regex, seg_regex)
+
+            seg_regexes: dict[str, str] = {}
+            if self.use_tumour.get():
+                if "(" not in self.tumour_regex.get():
+                    messagebox.showerror(
+                        "Error", "Tumour regex must contain a capture group '()'"
+                    )
+                    return
+                seg_regexes["Tumour"] = self.tumour_regex.get()
+
+            if self.use_parenchyma.get():
+                if "(" not in self.parenchyma_regex.get():
+                    messagebox.showerror(
+                        "Error", "Parenchyma regex must contain a capture group '()'"
+                    )
+                    return
+                seg_regexes["Parenchyma"] = self.parenchyma_regex.get()
+
+            if self.use_shell.get():
+                if "(" not in self.shell_regex.get():
+                    messagebox.showerror(
+                        "Error", "Shell regex must contain a capture group '()'"
+                    )
+                    return
+                seg_regexes["Shell"] = self.shell_regex.get()
+
+            if not seg_regexes:
+                messagebox.showwarning(
+                    "Warning", "At least one mask regex must be selected."
+                )
+                return
+
+            builder = RegexHierarchyBuilder(id_regex, seg_regexes)
 
         try:
             result = builder.build(dataset_path)
@@ -240,12 +330,14 @@ class RdmxApp:
             log_str.append("\n")
             log_str.append("--- Matched Files ---")
             for idx, data in enumerate(valid_set):
-                if idx >= 5:
-                    log_str.append(f"... and {len(valid_set) - 5} more records")
+                if idx >= 15:
+                    log_str.append(f"... and {len(valid_set) - 15} more records")
                     break
                 log_str.append(f"ID: {data['ID']}")
                 log_str.append(f"  IMG: {Path(data['Image']).name}")
-                log_str.append(f"  MASK: {Path(data['Mask']).name}")
+                log_str.append(
+                    f"  MASK [{data.get('Region', 'Unknown')}]: {Path(data['Mask']).name}"
+                )
 
         if orphans:
             log_str.append("\n")
@@ -261,7 +353,7 @@ class RdmxApp:
                 mask_name = Path(data["Mask"]).name if data.get("Mask") else "N/A"
 
                 log_str.append(f"  IMG: {img_name}")
-                log_str.append(f"  MASK: {mask_name}")
+                log_str.append(f"  MASK [{data.get('Region', 'Unknown')}]: {mask_name}")
 
         if log_str:
             self.log(log_str)
@@ -290,16 +382,22 @@ class RdmxApp:
 
             try:
                 with open(save_path, mode="w", newline="", encoding="utf-8") as f:
-                    writer = csv.DictWriter(f, fieldnames=["ID", "Image", "Mask"])
+                    fieldnames = ["ID", "Image", "Mask"]
+                    if self.nav_mode.get() == "regex":
+                        fieldnames.append("Region")
+
+                    writer = csv.DictWriter(f, fieldnames=fieldnames)
                     writer.writeheader()
                     for data in self.hierarchy:
-                        writer.writerow(
-                            {
-                                "ID": data["ID"],
-                                "Image": str(data["Image"]),
-                                "Mask": str(data["Mask"]),
-                            }
-                        )
+                        row = {
+                            "ID": data["ID"],
+                            "Image": str(data["Image"]),
+                            "Mask": str(data["Mask"]),
+                        }
+                        if "Region" in data:
+                            row["Region"] = str(data["Region"])
+
+                        writer.writerow(row)
                 self.log(f"\nExported to:\n{save_path}")
                 messagebox.showinfo(
                     "Success", f"Export completed\nSaved to: {save_path}"
