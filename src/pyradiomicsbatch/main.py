@@ -4,11 +4,12 @@ import os
 import re
 import subprocess
 import sys
+import time
 import tkinter as tk
 from datetime import UTC, datetime
 from pathlib import Path
 
-from rich.console import Console
+from rich import print
 from tqdm import tqdm
 
 from pyradiomicsbatch.dbnav import (
@@ -41,9 +42,8 @@ def rdmx_headless(
     mode: str,
     id_regex: str,
     seg_regexes: dict[str, str],
-    console: Console,
 ):
-    console.print(f"[bold cyan]Scanning directory:[/bold cyan] {dataset_dir}")
+    print(f"[bold cyan]Scanning directory:[/bold cyan] {dataset_dir}")
     if mode == "strict":
         builder = StrictHierarchyBuilder()
     else:
@@ -52,21 +52,21 @@ def rdmx_headless(
     try:
         result = builder.build(dataset_dir)
     except RuntimeError as e:
-        console.print(f"[bold red]Failed to load image: {e}[/bold red]")
+        print(f"[bold red]Failed to load image: {e}[/bold red]")
         sys.exit(1)
     except FileNotFoundError as e:
-        console.print(f"[bold red]File does not exist: {e}[/bold red]")
+        print(f"[bold red]File does not exist: {e}[/bold red]")
         sys.exit(1)
 
     valid_set = [data for data in result if data.get("Image") and data.get("Mask")]
     orphans = len(result) - len(valid_set)
 
-    console.print(
+    print(
         f"Found [bold green]{len(valid_set)}[/bold green] matched pairs ({orphans} incomplete records skipped)"
     )
 
     if not valid_set:
-        console.print("[bold red]No valid pairs found. Aborting[/bold red]")
+        print("[bold red]No valid pairs found. Aborting[/bold red]")
         sys.exit(1)
 
     with open(out_csv, mode="w", newline="", encoding="utf-8") as f:
@@ -94,7 +94,7 @@ def pyradiomics_cli(
     out_path: Path,
     config_path: Path,
     logging_path: Path,
-    total_cases: int,
+    total_files: int,
     jobs: int,
 ):
     venv_dir = Path(sys.executable).parent
@@ -119,10 +119,21 @@ def pyradiomics_cli(
         "4",
     ]
 
-    _run_with_progress(cmd, total_cases)
+    start_time = time.perf_counter()
+
+    _run_with_progress(cmd, total_files)
+
+    end_time = time.perf_counter()
+    total_elapsed = end_time - start_time
+    avg_time = (total_elapsed / total_files) if total_files > 0 else 0
+
+    print("\n[bold cyan]Summary[/bold cyan]")
+    print(f"    Total Files Processed : [green]{total_files}[/green]")
+    print(f"    Total Time Elapsed    : [green]{total_elapsed:.2f} seconds[/green] ({total_elapsed / 60:.2f} mins)")
+    print(f"    Average Time per File : [green]{avg_time:.2f} seconds[/green]")
 
 
-def _run_with_progress(cmd: list[str], total_cases: int):
+def _run_with_progress(cmd: list[str], total_files: int):
     case_pattern = re.compile(r"\(case\s+(\d+)\)", re.IGNORECASE)
     finished_cases: set[str] = set()
 
@@ -131,7 +142,7 @@ def _run_with_progress(cmd: list[str], total_cases: int):
     )
 
     if process.stdout is not None:
-        with tqdm(total=total_cases, desc="Extracting Features") as pbar:
+        with tqdm(total=total_files, desc="Extracting Features", unit="file") as pbar:
             for line in process.stdout:
                 if "failed!" in line.lower() or "processed" in line.lower():
                     match = case_pattern.search(line)
@@ -167,7 +178,7 @@ def main():
         "--out",
         type=Path,
         required=True,
-        help="Parent directory of /output where all outputs will be stored. /output will be created automatically",
+        help="Parent directory where all outputs will be stored.",
     )
     init_parser.add_argument(
         "--mode",
@@ -209,7 +220,7 @@ def main():
         "--out",
         type=Path,
         required=True,
-        help="Parent directory of /output where all outputs will be stored. /output will be created automatically",
+        help="Parent directory where all outputs will be stored.",
     )
     rdmx_parser.add_argument(
         "-f", "--file", type=Path, required=True, help="Path to pre-built csv."
@@ -238,7 +249,7 @@ def main():
         "--out",
         type=Path,
         required=True,
-        help="Parent directory of /output where all outputs will be stored. /output will be created automatically",
+        help="Parent directory where all outputs will be stored",
     )
     pipe_parser.add_argument("--mode", choices=["strict", "regex"], default="strict")
     pipe_parser.add_argument(
@@ -276,10 +287,9 @@ def main():
     if not args.out:
         parser.error("The -o/--out argument is required for operating via CLI")
 
-    console = Console()
     cur_timestamp = get_timestamp()
     base_output_dir = (
-        args.out / "output" if args.out else (Path(__file__).parent / "output")
+        args.out if args.out else (Path(__file__).parent / "output")
     )
     config_path = args.config if args.config else Path(__file__).parent / "config.yaml"
     n_jobs = args.jobs if args.jobs else get_optimal_jobs()
@@ -299,13 +309,13 @@ def main():
         csv_path: Path = output_dir / "batch.csv"
 
         rdmx_headless(
-            args.dir, csv_path, args.mode, args.id_regex, seg_regexes, console
+            args.dir, csv_path, args.mode, args.id_regex, seg_regexes
         )
-        console.print(
+        print(
             f"[bold green]Pre-built csv file saved to:[/bold green] {csv_path}"
         )
     elif args.cmd == "run":
-        if args.file.parent.parent.resolve() == base_output_dir.resolve():
+        if re.search(r"_\d{14}$", args.file.parent.name):
             output_dir = args.file.parent
         else:
             output_dir = (
@@ -319,23 +329,23 @@ def main():
         try:
             with open(args.file, "r", encoding="utf-8") as f:
                 reader = csv.reader(f)
-                total_cases = sum(1 for _ in reader) - 1
+                total_files = sum(1 for _ in reader) - 1
         except FileNotFoundError:
-            console.print(f"[bold red]Error: Could not find {args.file}[/bold red]")
+            print(f"[bold red]Error: Could not find {args.file}[/bold red]")
             return
 
-        if total_cases > 0:
-            console.print(
+        if total_files > 0:
+            print(
                 f"[bold cyan]Running pyradiomics batch with {n_jobs} threads[/bold cyan]"
             )
             pyradiomics_cli(
-                args.file, rdmx_csv, config_path, logging_path, total_cases, n_jobs
+                args.file, rdmx_csv, config_path, logging_path, total_files, n_jobs
             )
-            console.print(
+            print(
                 f"[bold green]Radiomics csv file saved to:[/bold green] {rdmx_csv}"
             )
         else:
-            console.print(
+            print(
                 f"[bold red]Batch CSV is empty or only contains a header[/bold red] {args.file}"
             )
     else:
@@ -346,32 +356,32 @@ def main():
         logging_path = output_dir / "pyradiomics.log"
 
         rdmx_headless(
-            args.dir, csv_path, args.mode, args.id_regex, seg_regexes, console
+            args.dir, csv_path, args.mode, args.id_regex, seg_regexes,
         )
-        console.print(
+        print(
             f"[bold green]Pre-built csv file saved to:[/bold green] {csv_path}"
         )
 
         try:
             with open(csv_path, "r", encoding="utf-8") as f:
                 reader = csv.reader(f)
-                total_cases = sum(1 for _ in reader) - 1
+                total_files = sum(1 for _ in reader) - 1
         except FileNotFoundError:
-            console.print(f"[bold red]Error: Could not find {csv_path}[/bold red]")
+            print(f"[bold red]Error: Could not find {csv_path}[/bold red]")
             return
 
-        if total_cases > 0:
-            console.print(
+        if total_files > 0:
+            print(
                 f"[bold cyan]Running pyradiomics batch with {n_jobs} threads[/bold cyan]"
             )
             pyradiomics_cli(
-                csv_path, rdmx_csv, config_path, logging_path, total_cases, n_jobs
+                csv_path, rdmx_csv, config_path, logging_path, total_files, n_jobs
             )
-            console.print(
+            print(
                 f"[bold green]Radiomics csv file saved to:[/bold green] {rdmx_csv}"
             )
         else:
-            console.print(
+            print(
                 f"[bold red]Batch CSV is empty or only contains a header[/bold red] {csv_path}"
             )
 
