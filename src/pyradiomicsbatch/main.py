@@ -97,8 +97,11 @@ def pyradiomics_cli(
     total_cases: int,
     jobs: int,
 ):
+    venv_dir = Path(sys.executable).parent
+    exe_dir = venv_dir / "pyradiomics"
+
     cmd = [
-        "pyradiomics",
+        str(exe_dir),
         str(csv_path),
         "-o",
         str(out_path),
