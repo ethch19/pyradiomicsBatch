@@ -57,8 +57,21 @@ Same functionality as the UI.
 # Default (Stict mode)
 rdmx-batch init -d ./dataset -o ./radiomics
 
-# Regex mode for custom matching
-rdmx-batch init -d ./dataset -o ./radiomics --mode regex --id-regex "([^/]+)/[^/]+\.nii\.gz$" --seg-regex "(_seg|_mask)\.nii\.gz$"
+# Regex mode for custom matching with all mask types
+rdmx-batch init -d ./dataset -o ./radiomics \
+  --mode regex \
+  --id-regex "([^/]+)/[^/]+\.nii\.gz$" \
+  --tumour-regex "(_seg|_mask)\.nii\.gz$" \
+  --parenchyma-regex "(_parenchyma|_patch)\.nii\.gz$" \
+  --shell-regex "(_shell|_annular)\.nii\.gz$"
+
+# Regex mode with tumour mask only
+rdmx-batch init -d ./dataset -o ./radiomics \
+  --mode regex \
+  --id-regex "([^/]+)/[^/]+\.nii\.gz$" \
+  --tumour-regex "(_seg|_mask)\.nii\.gz$" \
+  --ignore-parenchyma \
+  --ignore-shell
 ```
 
 ### 2. Traversal Modes
@@ -101,29 +114,36 @@ If your file naming convention does not match the default strict mode, you can u
 
 Folder structure:
 ```
+```text
     DataFolder/ 
     ├── NIFTI/
     │   ├── 1.nii.gz
     │   ├── 2.nii.gz
-    │   ├── 3.nii.gz
     │   └── ...
     └── SEG/
         ├── seg1.nii.gz
+        ├── seg1_parenchyma.nii.gz
+        ├── seg1_annular.nii.gz
         ├── seg2.nii.gz
-        ├── seg3.nii.gz
+        ├── seg2_parenchyma.nii.gz
+        ├── seg2_annular.nii.gz
         └── ...
 ```
 
 Command:
 ```bash
-rdmx-batch init -d ./DataFolder -o ./radiomics --mode regex --id-regex "/NIFTI/(\d+)\.nii\.gz$" --seg-regex "/SEG/seg(\d+)\.nii\.gz$"
+rdmx-batch init -d ./DataFolder -o ./radiomics --mode regex \
+  --id-regex "/NIFTI/(\d+)\.nii\.gz$" \
+  --tumour-regex "/SEG/seg(\d+)\.nii\.gz$" \
+  --parenchyma-regex "/SEG/seg(\d+)_parenchyma\.nii\.gz$" \
+  --shell-regex "/SEG/seg(\d+)_annular\.nii\.gz$"
 ```
 
 1. Extracting the ID:
-    - The parser extracts whatever is in the *first* capture group `(...)` and assigns it as the ID.
-    - In this case, it's the numbers (`\d+` means as many numbers as there is)
+    - The parser extracts whatever is in the *first* capture group `(...)` in the `--id-regex` flag and assigns it as the ID.
+    - In this case, it's the numbers (`(\d+)` means as many numbers as there is)
 2. Identifying the mask:
-    - Similarly, the parser extracts `.nii.gz` files under `/SEG` and matches its ID
+    - The parser applies the `--tumour-regex`, `--parenchyma-regex`, and `--shell-regex` flags to identify the respective `.nii.gz` files within the `/SEG` directory.
     - The ID must be identical to the one extracted in the previous step. Or else, nothing will match.
 
 
