@@ -22,7 +22,7 @@ curl -LsSf https://astral.sh/uv/install.sh | sh
 ### Step 2. Install as CLI
 **Option A: Install directly from GitHub (Recommended)**
 ```bash
-uv tool install git+https://github.com/Mitch-Chen-Group/pyradiomicsBatch.git
+uv tool install git+https://github.com/Mitch-Chen-Group/pyradiomicsBatch.git --python 3.11
 ```
 <br />
 
@@ -30,12 +30,14 @@ uv tool install git+https://github.com/Mitch-Chen-Group/pyradiomicsBatch.git
 1. Go to the [Releases page](https://github.com/Mitch-Chen-Group/pyradiomicsBatch/releases/latest) and download the `.whl` file.
 2. Run the following command in your terminal (replace the filename with the one you downloaded):
 ```bash
-uv tool install ./pyradiomicsbatch-0.1.0-py3-none-any.whl
+uv tool install ./pyradiomicsbatch-0.1.0-py3-none-any.whl --python 3.11
 ```
+
+> Python version `<=3.13` is tested and working. For the most stable, reproducible environment, installing with Python `3.11` is highly recommended. 
 
 ## Usage
 ### 1. Generate Dataset Links
-Creates a `/output` folder inside your specified output (`-o`/`--out`) directory containing the mapped `batch.csv`.
+Creates mapped `batch.csv` containing paths to images and masks, inside your specified output (`-o`/`--out`) directory
 <br /><br />
 
 **Option A: Interactive UI (`launch`)**
