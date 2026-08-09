@@ -52,7 +52,7 @@ class RegexHierarchyBuilder(HierarchyBuilder):
         masks: dict[str, list[tuple[Path, str]]] = defaultdict(list)
 
         for file_path in dataset_dir.rglob("*.nii.gz"):
-            path_str = file_path.as_posix()
+            path_str = file_path.relative_to(dataset_dir).as_posix()
 
             matched_mask = False
             for region, seg_regex in self.seg_regexes.items():

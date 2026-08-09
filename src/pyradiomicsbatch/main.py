@@ -129,7 +129,9 @@ def pyradiomics_cli(
 
     print("\n[bold cyan]Summary[/bold cyan]")
     print(f"    Total Files Processed : [green]{total_files}[/green]")
-    print(f"    Total Time Elapsed    : [green]{total_elapsed:.2f} seconds[/green] ({total_elapsed / 60:.2f} mins)")
+    print(
+        f"    Total Time Elapsed    : [green]{total_elapsed:.2f} seconds[/green] ({total_elapsed / 60:.2f} mins)"
+    )
     print(f"    Average Time per File : [green]{avg_time:.2f} seconds[/green]")
 
 
@@ -288,9 +290,7 @@ def main():
         parser.error("The -o/--out argument is required for operating via CLI")
 
     cur_timestamp = get_timestamp()
-    base_output_dir = (
-        args.out if args.out else (Path(__file__).parent / "output")
-    )
+    base_output_dir = args.out if args.out else (Path(__file__).parent / "output")
     config_path = args.config if args.config else Path(__file__).parent / "config.yaml"
     n_jobs = args.jobs if args.jobs else get_optimal_jobs()
 
@@ -308,12 +308,8 @@ def main():
         output_dir.mkdir(parents=True, exist_ok=True)
         csv_path: Path = output_dir / "batch.csv"
 
-        rdmx_headless(
-            args.dir, csv_path, args.mode, args.id_regex, seg_regexes
-        )
-        print(
-            f"[bold green]Pre-built csv file saved to:[/bold green] {csv_path}"
-        )
+        rdmx_headless(args.dir, csv_path, args.mode, args.id_regex, seg_regexes)
+        print(f"[bold green]Pre-built csv file saved to:[/bold green] {csv_path}")
     elif args.cmd == "run":
         if re.search(r"_\d{14}$", args.file.parent.name):
             output_dir = args.file.parent
@@ -341,9 +337,7 @@ def main():
             pyradiomics_cli(
                 args.file, rdmx_csv, config_path, logging_path, total_files, n_jobs
             )
-            print(
-                f"[bold green]Radiomics csv file saved to:[/bold green] {rdmx_csv}"
-            )
+            print(f"[bold green]Radiomics csv file saved to:[/bold green] {rdmx_csv}")
         else:
             print(
                 f"[bold red]Batch CSV is empty or only contains a header[/bold red] {args.file}"
@@ -356,11 +350,13 @@ def main():
         logging_path = output_dir / "pyradiomics.log"
 
         rdmx_headless(
-            args.dir, csv_path, args.mode, args.id_regex, seg_regexes,
+            args.dir,
+            csv_path,
+            args.mode,
+            args.id_regex,
+            seg_regexes,
         )
-        print(
-            f"[bold green]Pre-built csv file saved to:[/bold green] {csv_path}"
-        )
+        print(f"[bold green]Pre-built csv file saved to:[/bold green] {csv_path}")
 
         try:
             with open(csv_path, "r", encoding="utf-8") as f:
@@ -377,9 +373,7 @@ def main():
             pyradiomics_cli(
                 csv_path, rdmx_csv, config_path, logging_path, total_files, n_jobs
             )
-            print(
-                f"[bold green]Radiomics csv file saved to:[/bold green] {rdmx_csv}"
-            )
+            print(f"[bold green]Radiomics csv file saved to:[/bold green] {rdmx_csv}")
         else:
             print(
                 f"[bold red]Batch CSV is empty or only contains a header[/bold red] {csv_path}"
