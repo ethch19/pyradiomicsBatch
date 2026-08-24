@@ -128,8 +128,12 @@ class RegexHierarchyBuilder(HierarchyBuilder):
                         "Mask": str(mask_path),
                         "Region": region,
                     }
-                    if self.label_map and region == "Tumour" and label_val:
-                        item["Label"] = label_val
+                    if self.label_map:
+                        if region == "Tumour" and label_val:
+                            item["Label"] = label_val
+                        else:
+                            # default to 1 for shell, parenchymal
+                            item["Label"] = "1"
                     result.append(item)
             else:
                 item = {
