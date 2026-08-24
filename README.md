@@ -74,6 +74,15 @@ rdmx-batch init -d ./dataset -o ./radiomics \
   --tumour-regex "(_seg|_mask)\.nii\.gz$" \
   --ignore-parenchyma \
   --ignore-shell
+
+# Regex mode with custom mask types and specific nodule label mapping
+rdmx-batch init -d ./dataset -o ./radiomics \
+  --mode regex \
+  --id-regex "([^/]+)/[^/]+\.nii\.gz$" \
+  --tumour-regex "(_seg|_mask)\.nii\.gz$" \
+  --parenchyma-regex "(_parenchyma|_patch)\.nii\.gz$" \
+  --shell-regex "(_shell|_annular)\.nii\.gz$" \
+  --label-csv ./label_indices.csv
 ```
 
 ### 2. Traversal Modes
@@ -138,7 +147,8 @@ rdmx-batch init -d ./DataFolder -o ./radiomics --mode regex \
   --id-regex "/NIFTI/(\d+)\.nii\.gz$" \
   --tumour-regex "/SEG/seg(\d+)\.nii\.gz$" \
   --parenchyma-regex "/SEG/seg(\d+)_parenchyma\.nii\.gz$" \
-  --shell-regex "/SEG/seg(\d+)_annular\.nii\.gz$"
+  --shell-regex "/SEG/seg(\d+)_annular\.nii\.gz$" \
+  -l ./label_indices.csv
 ```
 
 1. Extracting the ID:
@@ -147,7 +157,10 @@ rdmx-batch init -d ./DataFolder -o ./radiomics --mode regex \
 2. Identifying the mask:
     - The parser applies the `--tumour-regex`, `--parenchyma-regex`, and `--shell-regex` flags to identify the respective `.nii.gz` files within the `/SEG` directory.
     - The ID must be identical to the one extracted in the previous step. Or else, nothing will match.
-
+3. Custom Label Index Mapping (Optional):
+    - You can provide a CSV file (`-l` / `--label-csv` or via the UI field) mapping patient IDs to specific integer labels (e.g., from `labelgen`).
+    - The CSV must contain `ID` and `Label_Index` (or `Label Index`) headers.
+    - When provided, a `Label` column is added to `batch.csv`. PyRadiomics uses this column to override default label settings and extract features exclusively from the specified integer label for each scan.
 
 ### 3. Run Feature Extraction (`run`)
 Run the pyradiomics batch processing using a mapped CSV file.
@@ -173,6 +186,14 @@ rdmx-batch pipeline -d ./dataset -o ./radiomics
 
 # Run with custom pyradiomics config and run 4 threads in parallel
 rdmx-batch pipeline -d ./dataset -o ./radiomics -c custom_config.yaml -j 4
+
+# Run full pipeline with custom regex matching, label mapping, and 4 worker threads
+rdmx-batch pipeline -d ./dataset -o ./radiomics \
+  --mode regex \
+  --id-regex "([^/]+)/[^/]+\.nii\.gz$" \
+  --tumour-regex "(_seg|_mask)\.nii\.gz$" \
+  --label-csv ./label_indices.csv \
+  -c custom_config.yaml -j 4
 ```
 
 ## Developer Guide & Build Instructions

@@ -8,6 +8,41 @@ from pathlib import Path
 from tkinter import filedialog, messagebox, scrolledtext, ttk
 
 
+def load_label_indices_csv(csv_path: Path) -> dict[str, str]:
+    """Parse a CSV containing ID and Label_Index / Label Index columns."""
+    if not csv_path.is_file():
+        raise FileNotFoundError(f"Label CSV file does not exist: {csv_path}")
+
+    label_map: dict[str, str] = {}
+
+    with open(csv_path, mode="r", newline="", encoding="utf-8-sig") as f:
+        reader = csv.DictReader(f)
+        if not reader.fieldnames:
+            raise ValueError(f"CSV file is empty: {csv_path}")
+
+        headers = {str(h).strip().lower(): str(h) for h in reader.fieldnames if h}
+        id_col = headers.get("id")
+        label_col = (
+            headers.get("label_index")
+            or headers.get("label index")
+            or headers.get("label")
+        )
+
+        if not id_col or not label_col:
+            raise ValueError(
+                f"CSV must contain 'ID' and 'Label_Index' (or 'Label Index') columns. "
+                f"Found headers: {reader.fieldnames}"
+            )
+
+        for row in reader:
+            pt_id = str(row[id_col]).strip()
+            val = str(row[label_col]).strip()
+            if pt_id:
+                label_map[pt_id] = val
+
+    return label_map
+
+
 class HierarchyBuilder(ABC):
     @abstractmethod
     def build(self, dataset_dir: Path) -> list[dict[str, str]]:
@@ -40,11 +75,17 @@ class RegexHierarchyBuilder(HierarchyBuilder):
     User-specified regex to identify images and masks
     """
 
-    def __init__(self, id_regex: str, seg_regexes: dict[str, str]):
+    def __init__(
+        self,
+        id_regex: str,
+        seg_regexes: dict[str, str],
+        label_map: dict[str, str] | None = None,
+    ):
         self.id_regex = re.compile(id_regex)
         self.seg_regexes: dict[str, re.Pattern[str]] = {
             region: re.compile(pattern) for region, pattern in seg_regexes.items()
         }
+        self.label_map = label_map or {}
 
     def build(self, dataset_dir: Path) -> list[dict[str, str]]:
         result: list[dict[str, str]] = []
@@ -77,20 +118,27 @@ class RegexHierarchyBuilder(HierarchyBuilder):
 
         for pt_id in all_pt_ids:
             img = str(imgs[pt_id]) if pt_id in imgs else ""
+            label_val = self.label_map.get(pt_id, "")
+
             if masks.get(pt_id):
                 for mask_path, region in masks[pt_id]:
-                    result.append(
-                        {
-                            "ID": pt_id,
-                            "Image": img,
-                            "Mask": str(mask_path),
-                            "Region": region,
-                        }
-                    )
+                    item = {
+                        "ID": pt_id,
+                        "Image": img,
+                        "Mask": str(mask_path),
+                        "Region": region,
+                    }
+                    if self.label_map and region == "Tumour" and label_val:
+                        item["Label"] = label_val
+                    result.append(item)
             else:
-                result.append(
-                    {"ID": pt_id, "Image": img, "Mask": "", "Region": "Unknown"}
-                )
+                item = {
+                    "ID": pt_id,
+                    "Image": img,
+                    "Mask": "",
+                    "Region": "Unknown",
+                }
+                result.append(item)
 
         return result
 
@@ -114,6 +162,8 @@ class RdmxApp:
 
         self.use_shell = tk.BooleanVar(value=True)
         self.shell_regex = tk.StringVar(value=r"/([^/]+)s\.nii\.gz$")
+
+        self.label_csv_path = tk.StringVar(value="")
 
         self.hierarchy: list[dict[str, str]] = []
 
@@ -202,6 +252,18 @@ class RdmxApp:
         )
         self.ent_shell.grid(row=3, column=1, padx=10, pady=2)
 
+        ttk.Label(self.regex_frame, text="Label CSV (Optional):").grid(
+            row=4, column=0, sticky="w", pady=(10, 2)
+        )
+        csv_subframe = ttk.Frame(self.regex_frame)
+        csv_subframe.grid(row=4, column=1, sticky="ew", padx=10, pady=(10, 2))
+
+        self.ent_label_csv = ttk.Entry(csv_subframe, textvariable=self.label_csv_path)
+        self.ent_label_csv.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(0, 5))
+        ttk.Button(csv_subframe, text="Browse", command=self.browse_label_csv).pack(
+            side=tk.LEFT
+        )
+
         self.action_frame = ttk.Frame(main_frame)
         self.action_frame.pack(fill=tk.X, pady=20)
 
@@ -219,6 +281,14 @@ class RdmxApp:
         self.console.pack(fill=tk.BOTH, expand=True, pady=(5, 0))
 
         self.toggle_regex_entries()
+
+    def browse_label_csv(self):
+        path = filedialog.askopenfilename(
+            title="Select Label Indices CSV",
+            filetypes=[("CSV Files", "*.csv"), ("All Files", "*.*")],
+        )
+        if path:
+            self.label_csv_path.set(path)
 
     def browse_dir(self):
         init_path = self.dataset_dir.get()
@@ -265,6 +335,16 @@ class RdmxApp:
 
         self.console.delete(1.0, tk.END)
 
+        label_map: dict[str, str] = {}
+        csv_path_str = self.label_csv_path.get().strip()
+        if self.nav_mode.get() == "regex" and csv_path_str:
+            try:
+                label_map = load_label_indices_csv(Path(csv_path_str))
+                self.log(f"Loaded {len(label_map)} label index mapping(s) from CSV.")
+            except (ValueError, OSError, csv.Error) as e:
+                messagebox.showerror("Label CSV Error", str(e))
+                return
+
         if self.nav_mode.get() == "strict":
             builder = StrictHierarchyBuilder()
         else:
@@ -306,7 +386,7 @@ class RdmxApp:
                 )
                 return
 
-            builder = RegexHierarchyBuilder(id_regex, seg_regexes)
+            builder = RegexHierarchyBuilder(id_regex, seg_regexes, label_map=label_map)
 
         try:
             result = builder.build(dataset_path)
@@ -320,6 +400,20 @@ class RdmxApp:
         valid_set = [data for data in result if data.get("Image") and data.get("Mask")]
         orphans = [data for data in result if data not in valid_set]
         self.hierarchy = valid_set
+
+        if label_map:
+            missing_ids = {
+                data["ID"]
+                for data in valid_set
+                if data.get("Region") == "Tumour" and not data.get("Label")
+            }
+            if missing_ids:
+                preview_missing = ", ".join(sorted(missing_ids)[:5])
+                self.log(
+                    f"WARNING: {len(missing_ids)} patient(s) have no entry in label CSV "
+                    f"(default fallback will be used): {preview_missing}"
+                    f"{'...' if len(missing_ids) > 5 else ''}"
+                )
 
         self.log(
             f"{len(valid_set)} matched pairs ({len(orphans)} incomplete files skipped)"
@@ -337,6 +431,10 @@ class RdmxApp:
                 log_str.append(f"  IMG: {Path(data['Image']).name}")
                 log_str.append(
                     f"  MASK [{data.get('Region', 'Unknown')}]: {Path(data['Mask']).name}"
+                )
+                label_info = f" [Label: {data['Label']}]" if data.get("Label") else ""
+                log_str.append(
+                    f"  {label_info}"
                 )
 
         if orphans:
@@ -385,6 +483,8 @@ class RdmxApp:
                     fieldnames = ["ID", "Image", "Mask"]
                     if self.nav_mode.get() == "regex":
                         fieldnames.append("Region")
+                    if any("Label" in data for data in self.hierarchy):
+                        fieldnames.append("Label")
 
                     writer = csv.DictWriter(f, fieldnames=fieldnames)
                     writer.writeheader()
@@ -396,8 +496,11 @@ class RdmxApp:
                         }
                         if "Region" in data:
                             row["Region"] = str(data["Region"])
+                        if "Label" in data:
+                            row["Label"] = str(data["Label"])
 
                         writer.writerow(row)
+
                 self.log(f"\nExported to:\n{save_path}")
                 messagebox.showinfo(
                     "Success", f"Export completed\nSaved to: {save_path}"

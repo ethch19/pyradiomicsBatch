@@ -16,6 +16,7 @@ from pyradiomicsbatch.dbnav import (
     RdmxApp,
     RegexHierarchyBuilder,
     StrictHierarchyBuilder,
+    load_label_indices_csv,
 )
 
 
@@ -42,12 +43,25 @@ def rdmx_headless(
     mode: str,
     id_regex: str,
     seg_regexes: dict[str, str],
+    label_csv: Path | None = None,
 ):
     print(f"[bold cyan]Scanning directory:[/bold cyan] {dataset_dir}")
+
+    label_map: dict[str, str] = {}
+    if mode == "regex" and label_csv:
+        try:
+            label_map = load_label_indices_csv(label_csv)
+            print(
+                f"Loaded [bold green]{len(label_map)}[/bold green] label indices from {label_csv}"
+            )
+        except (ValueError, OSError, csv.Error) as e:
+            print(f"[bold red]Failed to load label CSV: {e}[/bold red]")
+            sys.exit(1)
+
     if mode == "strict":
         builder = StrictHierarchyBuilder()
     else:
-        builder = RegexHierarchyBuilder(id_regex, seg_regexes)
+        builder = RegexHierarchyBuilder(id_regex, seg_regexes, label_map=label_map)
 
     try:
         result = builder.build(dataset_dir)
@@ -61,6 +75,18 @@ def rdmx_headless(
     valid_set = [data for data in result if data.get("Image") and data.get("Mask")]
     orphans = len(result) - len(valid_set)
 
+    if label_map:
+        missing_ids = {
+            d["ID"] 
+            for d in valid_set 
+            if d.get("Region") == "Tumour" and not d.get("Label")
+        }
+        if missing_ids:
+            print(
+                f"[bold yellow]Warning:[/bold yellow] {len(missing_ids)} patient(s) "
+                f"missing from label CSV (will use PyRadiomics default label)."
+            )
+
     print(
         f"Found [bold green]{len(valid_set)}[/bold green] matched pairs ({orphans} incomplete records skipped)"
     )
@@ -73,6 +99,8 @@ def rdmx_headless(
         fieldnames = ["ID", "Image", "Mask"]
         if mode == "regex":
             fieldnames.append("Region")
+        if any("Label" in d for d in valid_set):
+            fieldnames.append("Label")
 
         writer = csv.DictWriter(f, fieldnames=fieldnames)
         writer.writeheader()
@@ -85,6 +113,8 @@ def rdmx_headless(
             }
             if "Region" in data:
                 row["Region"] = str(data["Region"])
+            if "Label" in data:
+                row["Label"] = str(data["Label"])
 
             writer.writerow(row)
 
@@ -205,6 +235,12 @@ def main():
         "--shell-regex", default=r"/([^/]+)s\.nii\.gz$", help="Regex for Shell mask"
     )
     init_parser.add_argument(
+        "-l",
+        "--label-csv",
+        type=Path,
+        help="Optional CSV file mapping ID to Label_Index",
+    )
+    init_parser.add_argument(
         "--ignore-tumour", action="store_true", help="Exclude tumour masks"
     )
     init_parser.add_argument(
@@ -271,6 +307,12 @@ def main():
         "--shell-regex", default=r"/([^/]+)s\.nii\.gz$", help="Regex for Shell mask"
     )
     pipe_parser.add_argument(
+        "-l",
+        "--label-csv",
+        type=Path,
+        help="Optional CSV file mapping ID to Label_Index",
+    )
+    pipe_parser.add_argument(
         "--ignore-tumour", action="store_true", help="Exclude tumour masks"
     )
     pipe_parser.add_argument(
@@ -308,7 +350,14 @@ def main():
         output_dir.mkdir(parents=True, exist_ok=True)
         csv_path: Path = output_dir / "batch.csv"
 
-        rdmx_headless(args.dir, csv_path, args.mode, args.id_regex, seg_regexes)
+        rdmx_headless(
+            args.dir,
+            csv_path,
+            args.mode,
+            args.id_regex,
+            seg_regexes,
+            label_csv=args.label_csv,
+        )
         print(f"[bold green]Pre-built csv file saved to:[/bold green] {csv_path}")
     elif args.cmd == "run":
         if re.search(r"_\d{14}$", args.file.parent.name):
@@ -355,6 +404,7 @@ def main():
             args.mode,
             args.id_regex,
             seg_regexes,
+            label_csv=args.label_csv,
         )
         print(f"[bold green]Pre-built csv file saved to:[/bold green] {csv_path}")
 
