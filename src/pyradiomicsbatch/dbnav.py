@@ -274,6 +274,10 @@ class RdmxApp:
             side=tk.LEFT
         )
 
+        ttk.Button(
+            self.action_frame, text="Clear Inputs", command=self.clear_inputs
+        ).pack(side=tk.LEFT, padx=(10, 0))
+
         ttk.Label(main_frame, text="Preview:", font=("Arial", 10, "bold")).pack(
             anchor="w"
         )
@@ -281,6 +285,17 @@ class RdmxApp:
         self.console.pack(fill=tk.BOTH, expand=True, pady=(5, 0))
 
         self.toggle_regex_entries()
+
+    def clear_inputs(self):
+        self.id_regex.set("")
+        self.tumour_regex.set("")
+        self.parenchyma_regex.set("")
+        self.shell_regex.set("")
+        self.label_csv_path.set("")
+
+        self.hierarchy = []
+
+        self.console.delete(1.0, tk.END)
 
     def browse_label_csv(self):
         path = filedialog.askopenfilename(
@@ -433,9 +448,7 @@ class RdmxApp:
                     f"  MASK [{data.get('Region', 'Unknown')}]: {Path(data['Mask']).name}"
                 )
                 label_info = f" [Label: {data['Label']}]" if data.get("Label") else ""
-                log_str.append(
-                    f"  {label_info}"
-                )
+                log_str.append(f"  {label_info}")
 
         if orphans:
             log_str.append("\n")

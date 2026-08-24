@@ -77,8 +77,8 @@ def rdmx_headless(
 
     if label_map:
         missing_ids = {
-            d["ID"] 
-            for d in valid_set 
+            d["ID"]
+            for d in valid_set
             if d.get("Region") == "Tumour" and not d.get("Label")
         }
         if missing_ids:
